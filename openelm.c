@@ -1,6 +1,6 @@
 /*
 gcc -o openelm -g  openelm.c -lm -fopenmp
-gcc --shared -o openelm.so openelm.c -lm -fopenmp
+gcc --shared -fPIC -o openelm.so openelm.c -lm -fopenmp
 */
 
 #include <stdio.h>
@@ -8,6 +8,7 @@ gcc --shared -o openelm.so openelm.c -lm -fopenmp
 #include <string.h>
 #include <math.h>
 
+// extern "C" int start();
 
 typedef struct {
     int ffn_dim_divisor;
@@ -51,6 +52,9 @@ typedef struct {
     float *att;
     float *logits;
     int *sample;
+
+    int *next;
+    int *token;
     int batch;
     int seq_len;
     int max_seq_len;
@@ -98,6 +102,8 @@ void malloc_run_state(RunState* s, OpenELMConfig* p) {
     // s->ihb2 = (float*)malloc(s->batch * seq_len * p->max_intermediate_dim * sizeof(float));
     s->logits = (float*)malloc(s->batch * seq_len * p->vocab_size * sizeof(float));
     s->sample = (int*)malloc(s->batch * sizeof(int));
+    s->next = (int*)malloc(s->batch * sizeof(int));
+    s->token = (int*)malloc(s->batch * s->max_seq_len * sizeof(int));
 }
 
 void free_run_state(RunState* s) {
@@ -247,7 +253,7 @@ void read_prompt(Prompt *prompt, char* prompt_path) {
 
 // https://pytorch.org/docs/stable/generated/torch.nn.Linear.html
 void linear_forward(float* output, float* input, float *weight, float* bias, int batch, int seq_len, int in_features, int out_features) {
-    printf("linear_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
+    // printf("linear_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
     for (int b = 0; b < batch; b++) {
         int l;
         #pragma omp parallel for private(l)
@@ -256,13 +262,16 @@ void linear_forward(float* output, float* input, float *weight, float* bias, int
                 int offset_out = b * seq_len * out_features + l * out_features + out;
                 int offset_bias = out;
                 float value = 0.0f;
+
                 for (int in = 0; in < in_features; in++) {
                     int offset_in = b * seq_len * in_features + l * in_features + in;
-                    int offset_weight = out * in_features + in;
+                    int offset_weight = out * in_features + in;                 
                     value += input[offset_in] * weight[offset_weight];
 
                 }
+
                 output[offset_out] = value;
+                
                 if (bias != NULL) {
                     output[offset_out] += bias[offset_bias];
                 } 
@@ -273,7 +282,7 @@ void linear_forward(float* output, float* input, float *weight, float* bias, int
 
 // https://arxiv.org/pdf/1910.07467
 void rmsnorm_forward(float* output, float* input, float *weight, int batch, int seq_len, int dim) {
-    printf("layernorm_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, dim);
+    // printf("rmsnorm_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, dim);
     for (int b = 0; b < batch; b++) {
         int l = 0;
         #pragma omp parallel for private(l)
@@ -306,7 +315,8 @@ void rmsnorm_rope_forward(float* output, RunState *s, OpenELMWeights *w, OpenELM
     
     
     float rope_freq_constant = (float)p->rope_freq_constant;
-    printf("rope_freq_constant:%f\n", rope_freq_constant);
+    // printf("rope_freq_constant:%f\n", rope_freq_constant);
+    // printf("rmsnorm_rope_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, out_features);
     for (int b = 0; b < batch; b++) {
         for (int sl = 0; sl < seq_len; sl++) {
             for (int h = 0; h < q_heads + k_heads + v_heads; h++) {
@@ -387,7 +397,7 @@ void group_attention_forward(float* output, RunState *s, OpenELMWeights *w, Open
     int num_groups = q_heads / k_heads;
     int out_features = (q_heads + k_heads + v_heads) * head_dim;
     
-    printf("attention_forward N:%d seq_len:%d head_dim:%d\n", s->batch, seq_len, head_dim);
+    // printf("group_attention_forward N:%d seq_len:%d head_dim:%d\n", s->batch, seq_len, head_dim);
     float min_dtype = -INFINITY;
     for (int b = 0; b < batch; b++) {
         for (int h = 0; h < q_heads; h++) {
@@ -468,7 +478,7 @@ void glu_forward(float* output, float* input, RunState *s, OpenELMWeights *w, Op
     int model_dim = p->model_dim;
     float ffn_multiplier = p->ffn_multipliers[layer_idx];
     int intermediate_dim = (int)make_divisible(ffn_multiplier * p->model_dim, p->ffn_dim_divisor, -1);
-    printf("glu_forward batch:%d seq_len:%d model_dim:%d intermediate_dim:%d\n", s->batch, seq_len, p->model_dim, intermediate_dim);
+    // printf("glu_forward batch:%d seq_len:%d model_dim:%d intermediate_dim:%d\n", s->batch, seq_len, p->model_dim, intermediate_dim);
 
     linear_forward(s->ihb, input, w->proj_1 + s->proj_1_offset, NULL, batch, seq_len, model_dim, 2 * intermediate_dim);
     s->proj_1_offset += 2 * intermediate_dim * model_dim;
@@ -493,16 +503,17 @@ void glu_forward(float* output, float* input, RunState *s, OpenELMWeights *w, Op
     // for (int i = 0; i < batch * seq_len * intermediate_dim; i++) {
     //     printf("%d=%f ", i, s->hb2[i]);
     // }
-
+    
     linear_forward(output, s->ihb2, w->proj_2 + s->proj_2_offset, NULL, batch, seq_len, intermediate_dim, model_dim);
     s->proj_2_offset += intermediate_dim * model_dim;
     // for (int i = 0; i < batch * seq_len * model_dim; i++) {
     //     printf("%d=%f ", i, output[i]);
     // }
+    
 }
 
 void logits_forward(float* output, float* input, float *weight, float* bias, int batch, int seq_len, int in_features, int out_features) {
-    printf("linear_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
+    // printf("logits_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
     for (int b = 0; b < batch; b++) {
         int l = seq_len - 1;
         // #pragma omp parallel for private(l)
@@ -528,7 +539,7 @@ void logits_forward(float* output, float* input, float *weight, float* bias, int
 
 
 void argmax_forward(int* output, float* input, int M, int N) {
-    printf("argmax_forward M:%d N:%d\n", M, N);
+    // printf("argmax_forward M:%d N:%d\n", M, N);
     int m = 0;
     #pragma omp parallel for private(m)
     for (m = 0; m < M; m++) {
@@ -549,14 +560,14 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
     s->qkv_proj_offset = 0;
     s->out_proj_offset = 0;
     s->proj_1_offset = 0;
-    s->proj_2_offset;
+    s->proj_2_offset = 0;
     float *x = s->x;
     int model_dim = p->model_dim;
     int head_dim = p->head_dim;
     int seq_len = pos + 1;
     float rope_freq_constant = (float)p->rope_freq_constant;
 
-    printf("pos:%d, batch:%d, model_dim:%d \n", pos, batch, model_dim);
+    // printf("pos:%d, batch:%d, model_dim:%d \n", pos, batch, model_dim);
     for (int i = 0; i < batch; i++) {
         for (int sl = 0; sl < seq_len; sl++) {
             int offset_token = i * s->max_seq_len + sl;
@@ -572,6 +583,7 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
     
     // for(int l = 0; l < 1; l++) {
     for(int l = 0; l < p->num_transformer_layers; l++) {
+        // printf("++++++++++++++++++++++ layer:%d\n", l);
         rmsnorm_forward(s->xb, s->x, w->attn_norm + l*model_dim, batch, seq_len, model_dim);
         // // for (int i = 0; i < batch * seq_len * model_dim; i++) {
         // for (int i = 0; i < 1280; i++) {
@@ -670,11 +682,11 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
         // }
 
         glu_forward(s->hb, s->xb, s, w, p, seq_len, l);
-
+        
         for (int i = 0; i < batch * seq_len * model_dim; i++) {
             s->x[i] += s->hb[i];
         }
-
+        
         // for (int i = 0; i < batch * seq_len *model_dim; i++) {
         //     printf("l=%d %d=%f ", l, i, s->x[i]);
         // }
@@ -750,6 +762,66 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
         // }
         // if (start == 0) { start = time_in_ms(); }
     }
+}
+
+
+OpenELM py_model;
+
+void c_init(int batch, int max_seq_len) {
+    openelm_build_from_checkpoint(&py_model, "openelm_270M.bin");
+    py_model.state.batch = batch;
+    py_model.state.max_seq_len = max_seq_len;
+    malloc_run_state(&py_model.state, &py_model.config);
+}
+
+// void get_mod
+int* c_openelm_forward(int batch, int seq_len, int *data, int pos) {
+    // printf("c_openelm_forward batch:%d, seq_len:%d, pos:%d\n", batch, seq_len, pos);
+    RunState *s = &py_model.state;
+    
+    // for (int b = 0; b < batch; b++) {
+    //     printf("the %d prompts: ", b);
+    //     int *data_ = data + b * seq_len;
+    //     for (int l = 0; l < seq_len; l++) {
+    //         printf("%d ", data_[l]);
+    //     }
+    //     printf("\n");
+    // }
+
+    int num_prompt_tokens = seq_len;
+    int* prompt_tokens = data;
+    int start = 0;
+    for (int i = 0; i < batch; i++) {
+        for (int sl = 0; sl < seq_len; sl++) {
+            int offset_in = i * seq_len + sl;
+            int offset_out = i * s->max_seq_len + sl;
+            s->token[offset_out] = data[offset_in];
+        }
+    }
+    Context ctx;
+    openelm_forward(&ctx, &py_model, s->token, batch, pos);
+    argmax_forward(s->sample, s->logits, s->batch, py_model.config.vocab_size);
+
+    
+    // for (int i = 0; i < s->batch; i++) {
+    //     printf("%d=%d ", i, s->sample[i]);
+    // }
+    // printf("\n");
+    return s->sample;
+}
+
+void c_generate(int batch, int seq_len, int *data, int steps) {
+    Context ctx;
+    Prompt prompt;
+    prompt.batch = batch;
+    prompt.length = seq_len;
+    prompt.data = data;
+    generate(&ctx, &py_model, &prompt, steps);
+    printf("hello openelm\n");
+}
+
+void c_chat () {
+
 }
 
 int start() {

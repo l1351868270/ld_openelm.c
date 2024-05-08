@@ -1,0 +1,296 @@
+OpenELMForCausalLM(
+  (transformer): OpenELMModel(
+    (token_embeddings): Embedding(32000, 1280)
+    (layers): ModuleList(
+      (0): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=12, key_heads=3, value_heads=3
+          (qkv_proj): Linear(in_features=1280, out_features=1152, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=768, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=1536, bias=False)
+          (proj_2): Linear(in_features=768, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (1): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=12, key_heads=3, value_heads=3
+          (qkv_proj): Linear(in_features=1280, out_features=1152, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=768, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=2048, bias=False)
+          (proj_2): Linear(in_features=1024, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (2): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=12, key_heads=3, value_heads=3
+          (qkv_proj): Linear(in_features=1280, out_features=1152, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=768, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=2560, bias=False)
+          (proj_2): Linear(in_features=1280, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (3): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=12, key_heads=3, value_heads=3
+          (qkv_proj): Linear(in_features=1280, out_features=1152, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=768, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=3072, bias=False)
+          (proj_2): Linear(in_features=1536, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (4): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=12, key_heads=3, value_heads=3
+          (qkv_proj): Linear(in_features=1280, out_features=1152, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=768, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=3584, bias=False)
+          (proj_2): Linear(in_features=1792, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (5): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=16, key_heads=4, value_heads=4
+          (qkv_proj): Linear(in_features=1280, out_features=1536, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1024, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=4096, bias=False)
+          (proj_2): Linear(in_features=2048, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (6): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=16, key_heads=4, value_heads=4
+          (qkv_proj): Linear(in_features=1280, out_features=1536, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1024, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=5120, bias=False)
+          (proj_2): Linear(in_features=2560, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (7): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=16, key_heads=4, value_heads=4
+          (qkv_proj): Linear(in_features=1280, out_features=1536, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1024, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=5632, bias=False)
+          (proj_2): Linear(in_features=2816, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (8): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=16, key_heads=4, value_heads=4
+          (qkv_proj): Linear(in_features=1280, out_features=1536, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1024, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=6144, bias=False)
+          (proj_2): Linear(in_features=3072, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (9): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=16, key_heads=4, value_heads=4
+          (qkv_proj): Linear(in_features=1280, out_features=1536, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1024, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=6656, bias=False)
+          (proj_2): Linear(in_features=3328, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (10): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=16, key_heads=4, value_heads=4
+          (qkv_proj): Linear(in_features=1280, out_features=1536, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1024, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=7168, bias=False)
+          (proj_2): Linear(in_features=3584, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (11): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=16, key_heads=4, value_heads=4
+          (qkv_proj): Linear(in_features=1280, out_features=1536, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1024, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=7680, bias=False)
+          (proj_2): Linear(in_features=3840, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (12): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=20, key_heads=5, value_heads=5
+          (qkv_proj): Linear(in_features=1280, out_features=1920, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1280, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=8704, bias=False)
+          (proj_2): Linear(in_features=4352, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (13): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=20, key_heads=5, value_heads=5
+          (qkv_proj): Linear(in_features=1280, out_features=1920, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1280, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=9216, bias=False)
+          (proj_2): Linear(in_features=4608, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (14): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=20, key_heads=5, value_heads=5
+          (qkv_proj): Linear(in_features=1280, out_features=1920, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1280, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=9728, bias=False)
+          (proj_2): Linear(in_features=4864, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+      (15): OpenELMDecoderLayer(
+        (attn): OpenELMMultiHeadCausalAttention(
+          query_heads=20, key_heads=5, value_heads=5
+          (qkv_proj): Linear(in_features=1280, out_features=1920, bias=False)
+          (pos_embedding): OpenELMRotaryEmbedding(	model_dim=64, max_seq_length=4096, freq_constant=10000)
+          (q_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (k_norm): OpenELMRMSNorm(num_features=64, eps=1e-06)
+          (out_proj): Linear(in_features=1280, out_features=1280, bias=False)
+        )
+        (ffn): OpenELMFeedForwardNetwork(
+          (ffn_with_glu) : True
+          (proj_1): Linear(in_features=1280, out_features=10240, bias=False)
+          (proj_2): Linear(in_features=5120, out_features=1280, bias=False)
+          (act): SiLU()
+        )
+        (ffn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+        (attn_norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+      )
+    )
+    (norm): OpenELMRMSNorm(num_features=1280, eps=1e-06)
+  )
+)
