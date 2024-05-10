@@ -31,7 +31,7 @@ if __name__ == '__main__':
     seq_len = len(tokenized_prompt)
     tokenized_prompt_c = [tokenized_prompt[0], tokenized_prompt[0]]
     print(tokenized_prompt_c)
-    max_seq_len = seq_len + 100
+    max_seq_len = seq_len + 5
     pos = 0
     init(batch, max_seq_len)
     # next = openelm_forward(tokenized_prompt_c, batch, seq_len, pos)
@@ -42,10 +42,10 @@ if __name__ == '__main__':
         else:
             tokenized_prompt_c = next
         next = openelm_forward(tokenized_prompt_c, batch, 1, pos)
-        print(tokenized_prompt_c)
+        print(f"pos:{pos} {tokenized_prompt_c}")
         output.append(tokenized_prompt_c[0])
         pos += 1
-    
+    output.append(next[0])
     output_text = tokenizer.decode(
         output,
         skip_special_tokens=True

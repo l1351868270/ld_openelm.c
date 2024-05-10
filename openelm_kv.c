@@ -1,6 +1,6 @@
 /*
 gcc -o openelm_kv -g  openelm_kv.c -lm -fopenmp
-gcc --shared -fPIC -o openelm.so openelm.c -lm -fopenmp
+gcc --shared -fPIC -o openelm_kv.so openelm_kv.c -lm -fopenmp
 */
 
 #include <stdio.h>
@@ -51,7 +51,6 @@ typedef struct {
     float *hb;
     float *att;
     float *logits;
-    int *sample;
     int *next;
     int *token;
 
@@ -105,13 +104,12 @@ void malloc_run_state(RunState* s, OpenELMConfig* p) {
     s->max_kv_heads = k_heads;
 
     s->att = (float*)malloc(s->batch * q_heads * seq_len  * sizeof(float));
-    s->ihb = (float*)malloc(s->batch * seq_len * 2 * p->max_intermediate_dim * sizeof(float));
-    s->ihb2 = (float*)malloc(s->batch * seq_len * p->max_intermediate_dim * sizeof(float));
+    s->ihb = (float*)malloc(s->batch * 2 * p->max_intermediate_dim * sizeof(float));
+    s->ihb2 = (float*)malloc(s->batch * p->max_intermediate_dim * sizeof(float));
 
-    s->hb = (float*)malloc(s->batch * seq_len * p->model_dim * sizeof(float));
+    s->hb = (float*)malloc(s->batch * p->model_dim * sizeof(float));
     // s->ihb2 = (float*)malloc(s->batch * seq_len * p->max_intermediate_dim * sizeof(float));
-    s->logits = (float*)malloc(s->batch * seq_len * p->vocab_size * sizeof(float));
-    s->sample = (int*)malloc(s->batch * sizeof(int));
+    s->logits = (float*)malloc(s->batch * p->vocab_size * sizeof(float));
     s->next = (int*)malloc(s->batch * sizeof(int));
     s->token = (int*)malloc(s->batch * sizeof(int));
     s->q = (float*)malloc(s->batch * q_heads * p->head_dim * sizeof(float));
@@ -462,7 +460,7 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
     float rope_freq_constant = (float)p->rope_freq_constant;
     // printf("rope_freq_constant:%f\n", rope_freq_constant);
     // printf("rmsnorm_rope_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, out_features);
-    int b;
+    // int b;
     #pragma omp parallel for private(b)
     for (b = 0; b < batch; b++) {
         for (int h = 0; h < q_heads; h++) {
@@ -521,7 +519,7 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
     // }
     // }
 
-    int b;
+    // int b;
     #pragma omp parallel for private(b)
     for (b = 0; b < batch; b++) {
         for (int h = 0; h < k_heads; h++) {
@@ -1093,12 +1091,12 @@ int* c_openelm_forward(int batch, int seq_len, int *data, int pos) {
     
     Context ctx;
     openelm_forward(&ctx, &py_model, s->token, batch, pos);
-    argmax_forward(s->sample, s->logits, s->batch, py_model.config.vocab_size);
+    argmax_forward(s->next, s->logits, s->batch, py_model.config.vocab_size);
     // for (int i = 0; i < s->batch; i++) {
-    //     printf("%d=%d ", i, s->sample[i]);
+    //     printf("%d=%d ", i, s->next[i]);
     // }
     // printf("\n");
-    return s->sample;
+    return s->next;
 }
 
 void c_generate(int batch, int seq_len, int *data, int steps) {
