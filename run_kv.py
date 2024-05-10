@@ -2,6 +2,7 @@
 gcc --shared -fPIC -o openelm_kv.so openelm_kv.c -lm -fopenmp
 
 '''
+import time
 from transformers import AutoTokenizer
 from ctypes import CDLL
 from ctypes import c_int, POINTER
@@ -31,11 +32,12 @@ if __name__ == '__main__':
     seq_len = len(tokenized_prompt)
     tokenized_prompt_c = [tokenized_prompt[0], tokenized_prompt[0]]
     print(tokenized_prompt_c)
-    max_seq_len = seq_len + 5
+    max_seq_len = seq_len + 256
     pos = 0
     init(batch, max_seq_len)
     # next = openelm_forward(tokenized_prompt_c, batch, seq_len, pos)
     output = []
+    begin = time.time()
     while (pos < max_seq_len):
         if pos < seq_len:
             tokenized_prompt_c = [tokenized_prompt[pos], tokenized_prompt[pos]]
@@ -45,6 +47,8 @@ if __name__ == '__main__':
         print(f"pos:{pos} {tokenized_prompt_c}")
         output.append(tokenized_prompt_c[0])
         pos += 1
+    end = time.time()
+    print(f"total time is: {end - begin}s, tokens: {max_seq_len} {max_seq_len / (end - begin)} tokens/s")
     output.append(next[0])
     output_text = tokenizer.decode(
         output,

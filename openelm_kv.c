@@ -3,6 +3,7 @@ gcc -o openelm_kv -g  openelm_kv.c -lm -fopenmp
 gcc --shared -fPIC -o openelm_kv.so openelm_kv.c -lm -fopenmp
 */
 
+#include <time.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -1001,6 +1002,13 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
     return s->logits;
 }
 
+long time_in_ms() {
+    // return time in milliseconds, for benchmarking the model speed
+    struct timespec time;
+    clock_gettime(CLOCK_REALTIME, &time);
+    return time.tv_sec * 1000 + time.tv_nsec / 1000000;
+}
+
 void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
     RunState *s = &openelm->state;
     for (int b = 0; b < prompt->batch; b++) {
@@ -1014,7 +1022,6 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
 
     int num_prompt_tokens = prompt->length;
     int* prompt_tokens = prompt->data;
-    int start = 0;
 
     int pos = 0;
     
@@ -1024,6 +1031,7 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
         // printf("token %d=%d\n", i, s->token[i]);
     }
 
+    long start = time_in_ms();
     while (pos < steps) {
         float *logits = openelm_forward(ctx, openelm, s->token, prompt->batch, pos);
 
@@ -1065,6 +1073,8 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
         // }
         // if (start == 0) { start = time_in_ms(); }
     }
+    long end = time_in_ms();
+    fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
 }
 
 
