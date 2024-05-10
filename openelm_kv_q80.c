@@ -329,7 +329,7 @@ void linear_forward(float* output, float* input, int8_t *weight_q, float* weight
                 for (int in = 0; in < in_features; in++) {
                     int offset_in = b * seq_len * in_features + l * in_features + in;
                     int offset_weight = out * in_features + in;                 
-                    value += input[offset_in] * ((float)weight_q[offset_weight]) * weight_s[out];
+                    value += input[offset_in] * (weight_q[offset_weight]) * weight_s[out];
 
                 }
 
