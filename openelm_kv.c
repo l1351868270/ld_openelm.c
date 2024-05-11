@@ -1,6 +1,8 @@
 /*
 gcc -o openelm_kv -g  openelm_kv.c -lm -fopenmp
 gcc --shared -fPIC -o openelm_kv.so openelm_kv.c -lm -fopenmp
+
+perf stat --profile openelm_kv_perf ./openelm_kv
 */
 
 #include <time.h>

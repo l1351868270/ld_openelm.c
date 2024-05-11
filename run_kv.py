@@ -1,5 +1,29 @@
 '''
 gcc --shared -fPIC -o openelm_kv.so openelm_kv.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+
+++++++++++++++++++++++++++++ openelm_kv_v1.c ++++++++++++++++++++++++++++
+gcc --shared -fPIC -o openelm_kv.so openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:56.51s, tokens:256, achieved 4.53 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -g -O0 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:55.93s, tokens:256, achieved 4.58 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -g -O1 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:12.26s, tokens:256, achieved 20.89 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -g -O2 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:12.40s, tokens:256, achieved 20.64 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -g -O3 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:12.02s, tokens:256, achieved 21.30 tokens/s
+
+++++++++++++++++++++++++++++ openelm_kv_v1.c ++++++++++++++++++++++++++++
 
 '''
 import time
@@ -28,11 +52,11 @@ if __name__ == '__main__':
     tokenizer = AutoTokenizer.from_pretrained(tokenizer, token=hf_access_token, use_fast=False)
     tokenized_prompt = tokenizer.encode("Once upon a time there was a man named John")
     print([tokenized_prompt, tokenized_prompt])
-    batch = 2
+    batch = 1
     seq_len = len(tokenized_prompt)
-    tokenized_prompt_c = [tokenized_prompt[0], tokenized_prompt[0]]
+    tokenized_prompt_c = [tokenized_prompt[0]]
     print(tokenized_prompt_c)
-    max_seq_len = seq_len + 256
+    max_seq_len = 256
     pos = 0
     init(batch, max_seq_len)
     # next = openelm_forward(tokenized_prompt_c, batch, seq_len, pos)
@@ -40,7 +64,7 @@ if __name__ == '__main__':
     begin = time.time()
     while (pos < max_seq_len):
         if pos < seq_len:
-            tokenized_prompt_c = [tokenized_prompt[pos], tokenized_prompt[pos]]
+            tokenized_prompt_c = [tokenized_prompt[pos]]
         else:
             tokenized_prompt_c = next
         next = openelm_forward(tokenized_prompt_c, batch, 1, pos)
@@ -48,7 +72,7 @@ if __name__ == '__main__':
         output.append(tokenized_prompt_c[0])
         pos += 1
     end = time.time()
-    print(f"total time is: {end - begin}s, tokens: {max_seq_len} {max_seq_len / (end - begin)} tokens/s")
+    
     output.append(next[0])
     output_text = tokenizer.decode(
         output,
@@ -56,3 +80,4 @@ if __name__ == '__main__':
     )
 
     print(output_text)
+    print(f"total time is:{end - begin:.2f}s, tokens:{max_seq_len}, achieved {max_seq_len / (end - begin):.2f} tokens/s")

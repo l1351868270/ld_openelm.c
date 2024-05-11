@@ -1,14 +1,35 @@
 /*
+
 gcc -o openelm_kv_v1 -g  openelm_kv_v1.c -lm -fopenmp
 OMP_NUM_THREADS=8 ./openelm_kv_v1
-total time is: 55.1197943687439s, tokens: 256   4.64442951813998 tokens/s
+seconds:57.977000s tokens:256 achieved tok/s: 4.415544
+
+gcc -o openelm_kv_v1 -g  -O0 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_v1
+seconds:56.895000s tokens:256 achieved tok/s: 4.499517
+
+gcc -o openelm_kv_v1 -g  -O1 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_v1
+seconds:10.914000s tokens:256 achieved tok/s: 23.456111
+
+gcc -o openelm_kv_v1 -g  -O2 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_v1
+seconds:11.255000s tokens:256 achieved tok/s: 22.745446
+
+gcc -o openelm_kv_v1 -g  -O3 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_v1
+seconds:10.861000s tokens:256 achieved tok/s: 23.570574
+
+gcc -o openelm_kv_v1 -g  -O4 openelm_kv_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_v1
+seconds:11.976000s tokens:256 achieved tok/s: 21.376086
 
 python generate_openelm.py --device=cpu --max_length=256
-Generation took 12.65 seconds.
-256 tokens.
-20.24 tokens/s.
+Generation took 12.1 seconds.
+ 256 tokens.
+ 21.15 tokens/s.
 
-gcc --shared -fPIC -o openelm_kv_v1.so openelm_kv_v1.c -lm -fopenmp
+gcc --shared -fPIC -o openelm_kv_v1.so -O3  openelm_kv_v1.c -lm -fopenmp
 
 /usr/lib/linux-tools/5.15.0-106-generic/perf  stat ./openelm_kv_v1
 */
@@ -1099,7 +1120,7 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
         // if (start == 0) { start = time_in_ms(); }
     }
     long end = time_in_ms();
-    fprintf(stderr, "seconds:%fs tokens:%d achieved tok/s: %f\n", (double)(end-start)*1000, pos, (pos) / (double)(end-start)*1000);
+    fprintf(stderr, "seconds:%fs tokens:%d achieved tok/s: %f\n", (double)(end-start) / 1000, pos, (pos) / (double)(end-start)*1000);
 }
 
 
