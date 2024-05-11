@@ -23,8 +23,22 @@ gcc --shared -fPIC -o openelm_kv.so -g -O3 openelm_kv_v1.c -lm -fopenmp
 OMP_NUM_THREADS=8 python run_kv.py
 total time is:12.02s, tokens:256, achieved 21.30 tokens/s
 
-++++++++++++++++++++++++++++ openelm_kv_v1.c ++++++++++++++++++++++++++++
+++++++++++++++++++++++++++++ openelm_kv_q80_v1.c ++++++++++++++++++++++++++++
+gcc --shared -fPIC -o openelm_kv.so openelm_kv_q80_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:64.93s, tokens:256, achieved 3.94 tokens/s
 
+gcc --shared -fPIC -o openelm_kv.so -g -O1 openelm_kv_q80_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:11.35s, tokens:256, achieved 22.55 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -g -O2 openelm_kv_q80_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:12.09s, tokens:256, achieved 21.17 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -g -O3 openelm_kv_q80_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:12.01s, tokens:256, achieved 21.32 tokens/s
 '''
 import time
 from transformers import AutoTokenizer
