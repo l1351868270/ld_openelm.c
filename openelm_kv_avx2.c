@@ -1,17 +1,19 @@
 /*
-gcc -o openelm_kv -g openelm_kv.c -lm -fopenmp
+gcc -o openelm_kv_v2 -g  openelm_kv_v2.c -lm -fopenmp -mavx -mavx2
+OMP_NUM_THREADS=8 ./openelm_kv_v2
+total time is: 55.1197943687439s, tokens: 256   4.64442951813998 tokens/s
 
-gcc -o openelm_kv openelm_kv.c -lm -fopenmp
-OMP_NUM_THREADS=8 ./openelm_kv
-seconds:226.659000s tokens:256 achieved tok/s: 1.129450
+gcc -o openelm_kv_v2 -g -O3 openelm_kv_v2.c -lm -fopenmp -mavx -mavx2
+OMP_NUM_THREADS=8 ./openelm_kv_v2
 
-gcc -o openelm_kv -O1 openelm_kv.c -lm -fopenmp
-OMP_NUM_THREADS=8 ./openelm_kv
-seconds:73.608000s tokens:256 achieved tok/s: 3.477883
+python generate_openelm.py --device=cpu --max_length=256
+Generation took 12.65 seconds.
+256 tokens.
+20.24 tokens/s.
 
-gcc --shared -fPIC -o openelm_kv.so openelm_kv.c -lm -fopenmp
+gcc --shared -fPIC -o openelm_kv_v2.so openelm_kv_v2.c -lm -fopenmp
 
-perf stat --profile openelm_kv_perf ./openelm_kv
+OMP_NUM_THREADS=8 /usr/lib/linux-tools/5.15.0-106-generic/perf  stat ./openelm_kv_v2
 */
 
 #include <time.h>
@@ -19,6 +21,7 @@ perf stat --profile openelm_kv_perf ./openelm_kv
 #include <stdlib.h>
 #include <string.h>
 #include <math.h>
+#include <immintrin.h>
 
 // extern "C" int start();
 
@@ -277,20 +280,36 @@ void read_prompt(Prompt *prompt, char* prompt_path) {
 // https://pytorch.org/docs/stable/generated/torch.nn.Linear.html
 void linear_forward(float* output, float* input, float *weight, float* bias, int batch, int seq_len, int in_features, int out_features) {
     // printf("linear_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
         for (int l = 0; l < seq_len; l++) {
-            for(int out = 0; out < out_features; out++) {
+            int out;
+            #pragma omp parallel for private(out)
+            for(out = 0; out < out_features; out++) {
                 int offset_out = b * seq_len * out_features + l * out_features + out;
                 int offset_bias = out;
                 float value = 0.0f;
 
-                for (int in = 0; in < in_features; in++) {
-                    int offset_in = b * seq_len * in_features + l * in_features + in;
-                    int offset_weight = out * in_features + in;                 
-                    value += input[offset_in] * weight[offset_weight];
+                // for (int in = 0; in < in_features; in++) {
+                //     int offset_in = b * seq_len * in_features + l * in_features + in;
+                //     int offset_weight = out * in_features + in;                 
+                //     value += input[offset_in] * weight[offset_weight];
 
+                // }
+                
+                __m256 a_avx;
+                __m256 b_avx;
+                __m256 d_avx;
+                for (int in = 0; in < in_features; in += 8) {
+                    int offset_in = b * seq_len * in_features + l * in_features + in;
+                    int offset_weight = out * in_features + in;
+                    a_avx = _mm256_loadu_ps(&input[offset_in]);  
+                    b_avx = _mm256_loadu_ps(&weight[offset_weight]); 
+                    d_avx = _mm256_mul_ps(a_avx, b_avx);
+                    d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                    d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                    value = value + ((float*)&d_avx)[0] + ((float*)&d_avx)[4];      
                 }
 
                 output[offset_out] = value;
@@ -306,22 +325,30 @@ void linear_forward(float* output, float* input, float *weight, float* bias, int
 // https://arxiv.org/pdf/1910.07467
 void rmsnorm_forward(float* output, float* input, float *weight, int batch, int seq_len, int dim) {
     // printf("rmsnorm_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, dim);
-    int b = 0;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
+    // int b = 0;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
         for (int l = 0; l < seq_len; l++) {
             
             int offset = b * seq_len * dim + l * dim;
             
             float ss = 0.0f;
-            for (int d = 0; d < dim; d++) {
-                ss += input[offset + d] * input[ offset + d];
+            __m256 a_avx;
+            __m256 d_avx;
+            for (int d = 0; d < dim; d += 8) {
+                a_avx = _mm256_loadu_ps(&input[offset + d]);  
+                d_avx = _mm256_mul_ps(a_avx, a_avx);
+                d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                ss = ss + ((float*)&d_avx)[0] + ((float*)&d_avx)[4];   
             }
+
             ss /= dim;
             ss += 1e-6f;
             ss = 1.0f / sqrtf(ss);
-            
-            for (int d = 0; d < dim; d++) {
+            int d = 0;
+            #pragma omp parallel for private(d)
+            for (d = 0; d < dim; d++) {
                  output[offset + d] = input[offset + d] * ss * weight[d];
             }
         }
@@ -336,10 +363,12 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
     int head_dim = p->head_dim;
     int out_features = (q_heads + k_heads + v_heads) * head_dim;
     
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
-        for(int out = 0; out < out_features; out++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int out;
+        #pragma omp parallel for private(out)
+        for(out = 0; out < out_features; out++) {
             int offset_out = b * out_features + out;
             int offset_q = b * q_heads * head_dim;
             // int offset_k = layer_idx * s->max_seq_len * batch * s->max_kv_heads * head_dim 
@@ -360,10 +389,19 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
             int offset_bias = out;
             float value = 0.0f;
 
-            for (int in = 0; in < p->model_dim; in++) {
+
+            __m256 a_avx;
+            __m256 b_avx;
+            __m256 d_avx;
+            for (int in = 0; in < p->model_dim; in += 8) {
                 int offset_in = b * p->model_dim + in;
-                int offset_weight = out * p->model_dim + in;                 
-                value += input[offset_in] * (w->qkv_proj + s->qkv_proj_offset)[offset_weight];
+                int offset_weight = out * p->model_dim + in;  
+                a_avx = _mm256_loadu_ps(&input[offset_in]);  
+                b_avx = _mm256_loadu_ps(&((w->qkv_proj + s->qkv_proj_offset)[offset_weight])); 
+                d_avx = _mm256_mul_ps(a_avx, b_avx);
+                d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                value = value + ((float*)&d_avx)[0] + ((float*)&d_avx)[4];    
             }
 
             if (out < q_heads * head_dim) {
@@ -473,13 +511,21 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
     // printf("rope_freq_constant:%f\n", rope_freq_constant);
     // printf("rmsnorm_rope_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, out_features);
     // int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
-        for (int h = 0; h < q_heads; h++) {
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int h;
+        #pragma omp parallel for private(h)
+        for (h = 0; h < q_heads; h++) {
             int offset = b * q_heads * head_dim + h * head_dim;
             float ss = 0.0f;
-            for (int hd = 0; hd < head_dim; hd++) {
-                ss += s->q[offset + hd] * s->q[ offset + hd];
+            __m256 a_avx;
+            __m256 d_avx;
+            for (int hd = 0; hd < head_dim; hd += 8) {
+                a_avx = _mm256_loadu_ps(&(s->q[offset + hd]));  
+                d_avx = _mm256_mul_ps(a_avx, a_avx);
+                d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                ss = ss + ((float*)&d_avx)[0] + ((float*)&d_avx)[4];   
             }
             ss /= head_dim;
             ss += 1e-6f;
@@ -532,16 +578,24 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
     // }
 
     // int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
-        for (int h = 0; h < k_heads; h++) {
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int h;
+        #pragma omp parallel for private(h)
+        for (h = 0; h < k_heads; h++) {
             int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
                          + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
                          + pos * s->max_kv_heads * head_dim
                          + h * head_dim;
             float ss = 0.0f;
-            for (int hd = 0; hd < head_dim; hd++) {
-                ss += s->key_cache[offset + hd] * s->key_cache[ offset + hd];
+            __m256 a_avx;
+            __m256 d_avx;
+            for (int hd = 0; hd < head_dim; hd += 8) {
+                a_avx = _mm256_loadu_ps(&(s->key_cache[ offset + hd]));  
+                d_avx = _mm256_mul_ps(a_avx, a_avx);
+                d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                ss = ss + ((float*)&d_avx)[0] + ((float*)&d_avx)[4];  
             }
             ss /= head_dim;
             ss += 1e-6f;
@@ -647,10 +701,12 @@ void group_attention_forward(float* output, RunState *s, OpenELMWeights *w, Open
     // printf("group_attention_forward N:%d seq_len:%d head_dim:%d\n", s->batch, seq_len, head_dim);
     float min_dtype = -INFINITY;
 
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
-        for (int h = 0; h < q_heads; h++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int h;
+        #pragma omp parallel for private(h)
+        for (h = 0; h < q_heads; h++) {
             int offset_att = b * s->max_q_heads * s->max_seq_len + h * s->max_seq_len;
             int offset_q = b * q_heads * head_dim + h * head_dim;
 
@@ -662,8 +718,16 @@ void group_attention_forward(float* output, RunState *s, OpenELMWeights *w, Open
                          + (h / num_groups)  * head_dim;
 
                 float score = 0.0f;
-                for (int i = 0; i < head_dim; i++) {
-                    score += s->q[offset_q + i] * s->key_cache[offset_k + i];
+                __m256 a_avx;
+                __m256 b_avx;
+                __m256 d_avx;
+                for (int i = 0; i < head_dim; i += 8) {
+                    a_avx = _mm256_loadu_ps(&(s->q[offset_q + i]));  
+                    b_avx = _mm256_loadu_ps(&(s->key_cache[offset_k + i])); 
+                    d_avx = _mm256_mul_ps(a_avx, b_avx);
+                    d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                    d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                    score = score + ((float*)&d_avx)[0] + ((float*)&d_avx)[4];  
                         // if (h == 0 && lk == 0) {
                         //     printf("offset_k:%d batch:%d, i:%d, q:%f, k:%f\n", offset_k, b, i, s->q[offset_q+i], s->key_cache[offset_k + i]);
                         // }
@@ -773,14 +837,16 @@ void glu_forward(float* output, float* input, RunState *s, OpenELMWeights *w, Op
     //     printf("%d=%f ", i, s->hb[i]);
     // }
 
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < s->batch; b++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < s->batch; b++) {
         for (int sl = 0; sl < seq_len; sl++) {
             int offset_y1 = b * seq_len * 2 * intermediate_dim + sl * 2 * intermediate_dim;
             int offset_y2 = b * seq_len * 2 * intermediate_dim + sl * 2 * intermediate_dim + intermediate_dim;
             int offset_h = b * seq_len * intermediate_dim + sl * intermediate_dim;
-            for (int d = 0; d < intermediate_dim; d++) {
+            int d;
+            #pragma omp parallel for private(d)
+            for (d = 0; d < intermediate_dim; d++) {
                 s->ihb[offset_y1 + d] = s->ihb[offset_y1 + d] / (1 + expf(-(s->ihb[offset_y1 + d])));
                 s->ihb2[offset_h+ d] = s->ihb[offset_y1 + d] * s->ihb[offset_y2 + d];
             }
@@ -802,21 +868,30 @@ void glu_forward(float* output, float* input, RunState *s, OpenELMWeights *w, Op
 
 void logits_forward(float* output, float* input, float *weight, float* bias, int batch, int seq_len, int in_features, int out_features) {
     // printf("logits_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
         int l = seq_len - 1;
         // #pragma omp parallel for private(l)
         // for (l = 0; l < seq_len; l++) {
-            for(int out = 0; out < out_features; out++) {
+            int out;
+            #pragma omp parallel for private(out)
+            for(out = 0; out < out_features; out++) {
                 int offset_out = b * out_features + out;
                 int offset_bias = out;
                 float value = 0.0f;
-                for (int in = 0; in < in_features; in++) {
+                __m256 a_avx;
+                __m256 b_avx;
+                __m256 d_avx;
+                for (int in = 0; in < in_features; in += 8) {
                     int offset_in = b * seq_len * in_features + l * in_features + in;
                     int offset_weight = out * in_features + in;
-                    value += input[offset_in] * weight[offset_weight];
-
+                    a_avx = _mm256_loadu_ps(&(input[offset_in]));  
+                    b_avx = _mm256_loadu_ps(&(weight[offset_weight])); 
+                    d_avx = _mm256_mul_ps(a_avx, b_avx);
+                    d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                    d_avx = _mm256_hadd_ps(d_avx, d_avx);
+                    value = value + ((float*)&d_avx)[0] + ((float*)&d_avx)[4];  
                 }
                 output[offset_out] = value;
                 if (bias != NULL) {
@@ -948,8 +1023,10 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
         // }
         // }
 
-        for (int i = 0; i < batch * model_dim; i++) {
-            s->x[i] += s->xb2[i];
+        int r_i = 0;
+        #pragma omp parallel for private(r_i)
+        for (r_i = 0; r_i < batch * model_dim; r_i++) {
+            s->x[r_i] += s->xb2[r_i];
         }
 
         // if (l == 5) {
@@ -976,9 +1053,11 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
         // }
 
         glu_forward(s->hb, s->xb, s, w, p, 1, l);
-        
-        for (int i = 0; i < batch * model_dim; i++) {
-            s->x[i] += s->hb[i];
+
+        int r_j = 0;
+        #pragma omp parallel for private(r_j)
+        for (r_j = 0; r_j < batch * model_dim; r_j++) {
+            s->x[r_j] += s->hb[r_j];
         }
         
         // if (l == 5) {
@@ -1085,7 +1164,7 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
         // if (start == 0) { start = time_in_ms(); }
     }
     long end = time_in_ms();
-    fprintf(stderr, "seconds:%fs tokens:%d achieved tok/s: %f\n", (double)(end-start) / 1000, pos, (pos) / (double)(end-start)*1000);
+    fprintf(stderr, "seconds:%fs tokens:%d achieved tok/s: %f\n", (double)(end-start)*1000, pos, (pos) / (double)(end-start)*1000);
 }
 
 

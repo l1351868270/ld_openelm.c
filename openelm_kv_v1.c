@@ -24,6 +24,9 @@ gcc -o openelm_kv_v1 -g  -O4 openelm_kv_v1.c -lm -fopenmp
 OMP_NUM_THREADS=8 ./openelm_kv_v1
 seconds:11.976000s tokens:256 achieved tok/s: 21.376086
 
+gcc -o openelm_kv_v1 -g -Ofast openelm_kv_v1.c -lm -fopenmp
+seconds:7.510000s tokens:256 achieved tok/s: 34.087883
+
 python generate_openelm.py --device=cpu --max_length=256
 Generation took 12.1 seconds.
  256 tokens.
