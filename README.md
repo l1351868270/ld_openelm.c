@@ -5,3 +5,5 @@
 2.q8量化
 
 3.avx2和avx512加速
+
+4.python wrapper
