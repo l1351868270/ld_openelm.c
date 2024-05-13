@@ -5,15 +5,19 @@ seconds:65.768000s tokens:256 achieved tok/s: 3.892471
 
 gcc -o openelm_kv_q80_v2 -g -O1 openelm_kv_q80_v2.c -lm -fopenmp
 OMP_NUM_THREADS=8 ./openelm_kv_q80_v2
-seconds:11.623000s tokens:256 achieved tok/s: 22.025295
+seconds:9.641000s tokens:256 achieved tok/s: 26.553262
 
 gcc -o openelm_kv_q80_v2 -g -O2 openelm_kv_q80_v2.c -lm -fopenmp
 OMP_NUM_THREADS=8 ./openelm_kv_q80_v2
-seconds:11.967000s tokens:256 achieved tok/s: 21.392162
+seconds:11.963000s tokens:256 achieved tok/s: 21.399315
 
 gcc -o openelm_kv_q80_v2 -g -O3 openelm_kv_q80_v2.c -lm -fopenmp
 OMP_NUM_THREADS=8 ./openelm_kv_q80_v2
-seconds:11.858000s tokens:256 achieved tok/s: 21.588801
+seconds:4.488000s tokens:256 achieved tok/s: 57.040998
+
+gcc -o openelm_kv_q80_v2 -g -Ofast openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_q80_v2
+seconds:3.983000s tokens:256 achieved tok/s: 64.273161
 
 gcc --shared -fPIC -o openelm_kv_q80_v2.so openelm_kv_q80_v2.c -lm -fopenmp
 OMP_NUM_THREADS=8 ./openelm_kv_v1
@@ -1571,6 +1575,8 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
         //     printf("],\n");
         // }
 
+    // // quantize(&s->xq, s->x, batch, model_dim);
+    // logits_forwardv1(s->logits, &s->xq, w->token_embeddings, NULL, batch, 1, model_dim, p->vocab_size);
     logits_forward(s->logits, s->x, w->token_embeddings, NULL, batch, 1, model_dim, p->vocab_size);
 
     // for (int i = 0; i < batch * p->vocab_size; i++) {
@@ -1726,7 +1732,7 @@ void c_chat () {
 int start() {
     Prompt prompt;
     read_prompt(&prompt, "openelm_prompt.bin");
-    prompt.batch = 2;
+    prompt.batch = 1;
 
     OpenELM *model = (OpenELM*)malloc(sizeof(OpenELM));
     OpenELMWeights *weights = (OpenELMWeights*)malloc(sizeof(OpenELMWeights));
