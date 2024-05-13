@@ -120,7 +120,6 @@ void malloc_run_state(RunState* s, OpenELMConfig* p) {
     s->x = (float*)malloc(s->batch * p->model_dim * sizeof(float));
     // printf("+++%d %d", s->batch, p->max_qkv_proj_dim);
     // s->x_qkv_proj = (float*)malloc(s->batch * seq_len * p->max_qkv_proj_dim * sizeof(float));
-    s->xb = (float*)malloc(s->batch * p->model_dim * sizeof(float));
     s->xb2 = (float*)malloc(s->batch * p->model_dim * sizeof(float));
     
     int q_heads = 0;
@@ -137,6 +136,12 @@ void malloc_run_state(RunState* s, OpenELMConfig* p) {
     }
     s->max_q_heads = q_heads;
     s->max_kv_heads = k_heads;
+
+    int max_xb_dim = p->model_dim;
+    if (max_xb_dim < q_heads * p->head_dim) {
+        max_xb_dim = q_heads * p->head_dim;
+    }
+    s->xb = (float*)malloc(s->batch * max_xb_dim * sizeof(float));
 
     s->att = (float*)malloc(s->batch * q_heads * seq_len  * sizeof(float));
     s->ihb = (float*)malloc(s->batch * 2 * p->max_intermediate_dim * sizeof(float));

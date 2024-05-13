@@ -1,8 +1,25 @@
 /*
-gcc -o openelm_kv_q40 -g  openelm_kv_q40.c -lm -fopenmp
-gcc --shared -fPIC -o openelm_kv_q40.so openelm_kv_q40.c -lm -fopenmp
+gcc -o openelm_kv_q80_v2 -g  openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_q80_v2
+seconds:65.768000s tokens:256 achieved tok/s: 3.892471
 
+gcc -o openelm_kv_q80_v2 -g -O1 openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_q80_v2
+seconds:11.623000s tokens:256 achieved tok/s: 22.025295
 
+gcc -o openelm_kv_q80_v2 -g -O2 openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_q80_v2
+seconds:11.967000s tokens:256 achieved tok/s: 21.392162
+
+gcc -o openelm_kv_q80_v2 -g -O3 openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_q80_v2
+seconds:11.858000s tokens:256 achieved tok/s: 21.588801
+
+gcc --shared -fPIC -o openelm_kv_q80_v2.so openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 ./openelm_kv_v1
+gcc -o openelm_kv_q80_v2 -g -O3 openelm_kv_q80_v2.c -lm -fopenmp
+
+*/
 
 #include <time.h>
 #include <stdio.h>
@@ -10,9 +27,12 @@ gcc --shared -fPIC -o openelm_kv_q40.so openelm_kv_q40.c -lm -fopenmp
 #include <string.h>
 #include <math.h>
 #include <stdint.h>
+#include <float.h>
+
+// float16 a;
 
 // extern "C" int start();
-
+int GS = 64;
 typedef struct {
     int ffn_dim_divisor;
     float ffn_multipliers[16];
@@ -57,6 +77,8 @@ typedef struct {
     float *ihb;
     float *ihb2;
     float *hb;
+    QuantizedTensor xq; 
+    QuantizedTensor ihbq2;
     float *att;
     float *logits;
     int *sample;
@@ -98,7 +120,7 @@ void malloc_run_state(RunState* s, OpenELMConfig* p) {
     s->x = (float*)malloc(s->batch * p->model_dim * sizeof(float));
     // printf("+++%d %d", s->batch, p->max_qkv_proj_dim);
     // s->x_qkv_proj = (float*)malloc(s->batch * seq_len * p->max_qkv_proj_dim * sizeof(float));
-    s->xb = (float*)malloc(s->batch * p->model_dim * sizeof(float));
+    
     s->xb2 = (float*)malloc(s->batch * p->model_dim * sizeof(float));
     
     int q_heads = 0;
@@ -116,13 +138,21 @@ void malloc_run_state(RunState* s, OpenELMConfig* p) {
     s->max_q_heads = q_heads;
     s->max_kv_heads = k_heads;
 
-    s->att = (float*)malloc(s->batch * q_heads * seq_len  * sizeof(float));
-    s->ihb = (float*)malloc(s->batch * seq_len * 2 * p->max_intermediate_dim * sizeof(float));
-    s->ihb2 = (float*)malloc(s->batch * seq_len * p->max_intermediate_dim * sizeof(float));
+    int max_xb_dim = p->model_dim;
+    if (max_xb_dim < q_heads * p->head_dim) {
+        max_xb_dim = q_heads * p->head_dim;
+    }
+    s->xb = (float*)malloc(s->batch * max_xb_dim * sizeof(float));
 
-    s->hb = (float*)malloc(s->batch * seq_len * p->model_dim * sizeof(float));
+    s->xq = (QuantizedTensor) { .q = (int8_t*)malloc(s->batch * max_xb_dim * sizeof(int8_t)), .s = (float*)malloc(s->batch * (max_xb_dim / GS) * sizeof(float)) };
+    s->ihbq2 = (QuantizedTensor) { .q = (int8_t*)malloc(s->batch * p->max_intermediate_dim * sizeof(int8_t)), .s = (float*)malloc(s->batch * p->max_intermediate_dim * sizeof(float)) };
+    s->att = (float*)malloc(s->batch * q_heads * seq_len  * sizeof(float));
+    s->ihb = (float*)malloc(s->batch * 2 * p->max_intermediate_dim * sizeof(float));
+    s->ihb2 = (float*)malloc(s->batch * p->max_intermediate_dim * sizeof(float));
+
+    s->hb = (float*)malloc(s->batch * p->model_dim * sizeof(float));
     // s->ihb2 = (float*)malloc(s->batch * seq_len * p->max_intermediate_dim * sizeof(float));
-    s->logits = (float*)malloc(s->batch * seq_len * p->vocab_size * sizeof(float));
+    s->logits = (float*)malloc(s->batch * p->vocab_size * sizeof(float));
     s->sample = (int*)malloc(s->batch * sizeof(int));
     s->next = (int*)malloc(s->batch * sizeof(int));
     s->token = (int*)malloc(s->batch * sizeof(int));
@@ -133,6 +163,47 @@ void malloc_run_state(RunState* s, OpenELMConfig* p) {
 
 void free_run_state(RunState* s) {
 
+}
+
+
+void dequantize(QuantizedTensor *qx, float* x, int batch, int n) {
+    int groups = n / GS;
+    for (int b = 0; b < batch; b++) {
+        // for (int group = 0; group < num_groups; group++) {
+        int offset = b * n;
+        for (int i = 0; i < n; i++) {
+            x[offset + i] = (float)(qx->q[offset + i]) * qx->s[b * groups + i / GS];
+            // printf("%d %d %f %f, ", offset + i, qx->q[offset + i], qx->s[b * num_groups + i / GS], x[i]);
+        }
+    }
+}
+
+void quantize(QuantizedTensor *qx, float* x, int batch, int n) {
+    int qgroups = n / GS;
+    float Q_MAX = 127.0f;
+
+    for (int b = 0; b < batch; b++) {
+        int group;
+        #pragma omp parallel for private(group)
+        for (group = 0; group < qgroups; group++) {
+            float wmax = 0.0;
+            int offset = b * n + group * GS;
+            for (int i = 0; i < GS; i++) {
+                float val = fabs(x[offset + i]);
+                if (val > wmax) {
+                    wmax = val;
+                }
+            }
+            float scale = wmax / Q_MAX;
+            qx->s[b * qgroups + group] = scale;
+
+            for (int i = 0; i < GS; i++) {
+                float quant_value = x[offset + i] / scale; // scale
+                int8_t quantized = (int8_t) round(quant_value); // round and clamp
+                qx->q[offset + i] = quantized;
+            }
+        }
+    }
 }
 
 void memory_map_weights(OpenELMWeights *w, OpenELMConfig* p, char* ptr) {
@@ -150,7 +221,6 @@ void memory_map_weights(OpenELMWeights *w, OpenELMConfig* p, char* ptr) {
     w->attn_norm = (float*)ptr;
     ptr += ll * sizeof(float);
 
-    // transformer.layers.{i}.attn.qkv_proj.weight
     ll = *((int*)ptr);
     // printf("c ll:%d\n", ll);
     ptr += sizeof(int);
@@ -158,7 +228,7 @@ void memory_map_weights(OpenELMWeights *w, OpenELMConfig* p, char* ptr) {
     // printf("c ll_s:%d\n", ll_s);
     ptr += sizeof(int);
     w->qkv_proj->q = (int8_t*)ptr;
-    ptr += ll / 2;
+    ptr += ll;
     w->qkv_proj->s = (float*)ptr;
     ptr += ll_s * sizeof(float);
 
@@ -174,7 +244,6 @@ void memory_map_weights(OpenELMWeights *w, OpenELMConfig* p, char* ptr) {
     w->k_norm = (float*)ptr;
     ptr += ll * sizeof(float);
 
-    // transformer.layers.{i}.attn.out_proj.weight
     ll = *((int*)ptr);
     // printf("c ll:%d\n", ll);
     ptr += sizeof(int);
@@ -182,7 +251,7 @@ void memory_map_weights(OpenELMWeights *w, OpenELMConfig* p, char* ptr) {
     // printf("c ll_s:%d\n", ll_s);
     ptr += sizeof(int);
     w->out_proj->q = (int8_t*)ptr;
-    ptr += ll / 2;
+    ptr += ll;
     w->out_proj->s = (float*)ptr;
     ptr += ll_s * sizeof(float);
 
@@ -192,7 +261,6 @@ void memory_map_weights(OpenELMWeights *w, OpenELMConfig* p, char* ptr) {
     w->ffn_norm = (float*)ptr;
     ptr += ll * sizeof(float);
 
-    // transformer.layers.{i}.ffn.proj_1.weight
     ll = *((int*)ptr);
     // printf("c ll:%d\n", ll);
     ptr += sizeof(int);
@@ -200,11 +268,10 @@ void memory_map_weights(OpenELMWeights *w, OpenELMConfig* p, char* ptr) {
     // printf("c ll_s:%d\n", ll_s);
     ptr += sizeof(int);
     w->proj_1->q = (int8_t*)ptr;
-    ptr += ll / 2;
+    ptr += ll;
     w->proj_1->s = (float*)ptr;
     ptr += ll_s * sizeof(float);
 
-    // transformer.layers.{i}.ffn.proj_2.weight
     ll = *((int*)ptr);
     // printf("c ll:%d\n", ll);
     ptr += sizeof(int);
@@ -212,7 +279,7 @@ void memory_map_weights(OpenELMWeights *w, OpenELMConfig* p, char* ptr) {
     // printf("c ll_s:%d\n", ll_s);
     ptr += sizeof(int);
     w->proj_2->q = (int8_t*)ptr;
-    ptr += ll / 2;
+    ptr += ll;
     w->proj_2->s = (float*)ptr;
     ptr += ll_s * sizeof(float);
 
@@ -323,26 +390,22 @@ void read_prompt(Prompt *prompt, char* prompt_path) {
 // https://pytorch.org/docs/stable/generated/torch.nn.Linear.html
 void linear_forward(float* output, float* input, int8_t *weight_q, float* weight_s, int batch, int seq_len, int in_features, int out_features) {
     // printf("linear_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
         for (int l = 0; l < seq_len; l++) {
-            for(int out = 0; out < out_features; out++) {
+            int out;
+            #pragma omp parallel for private(out)
+            for(out = 0; out < out_features; out++) {
                 int offset_out = b * seq_len * out_features + l * out_features + out;
                 int offset_bias = out;
                 float value = 0.0f;
 
                 for (int in = 0; in < in_features; in++) {
                     int offset_in = b * seq_len * in_features + l * in_features + in;
-                    int offset_weight = out * in_features / 2 + in / 2;
-                    uint8_t q = weight_q[offset_weight];
-                    int8_t q_low = (q & 0b1111) - 15;
-                    int8_t q_high = ((q >> 4) & 0b1111) - 15;
-                    if (in % 2 == 0) {
-                        value += input[offset_in] * q_low * weight_s[out];
-                    } else {
-                        value += input[offset_in] * q_high * weight_s[out];
-                    }        
+                    int offset_weight = out * in_features + in;                 
+                    value += input[offset_in] * (weight_q[offset_weight]) * weight_s[out];
+
                 }
 
                 output[offset_out] = value;
@@ -351,25 +414,83 @@ void linear_forward(float* output, float* input, int8_t *weight_q, float* weight
     }
 }
 
+// https://pytorch.org/docs/stable/generated/torch.nn.Linear.html
+void linear_forwardv1(float* output, QuantizedTensor* input, int8_t *weight_q, float* weight_s, int batch, int seq_len, int in_features, int out_features) {
+    // printf("linear_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        for (int l = 0; l < seq_len; l++) {
+            int out;
+            #pragma omp parallel for private(out)
+            for(out = 0; out < out_features; out++) {
+                int offset_out = b * seq_len * out_features + l * out_features + out;
+                int offset_bias = out;
+                float value = 0.0f;
+                int qgroups = in_features / GS;
+                int32_t ival = 0;
+                for (int ig = 0; ig < qgroups; ig++) {
+                    for (int in = 0; in < GS; in++) {
+                        int offset_in = b * seq_len * in_features + l * in_features + ig * GS + in;
+                        int offset_weight = out * in_features + ig * GS + in;
+                        ival += input->q[offset_in] * (weight_q[offset_weight]);            
+                //     value += input[offset_in] * (weight_q[offset_weight]);
+                    }
+                    value += (float)ival * input->s[b * qgroups + ig];
+                    ival = 0;
+                }
+                // for (int in = 0; in < in_features; in++) {
+                //     int offset_in = b * seq_len * in_features + l * in_features + in;
+                //     int offset_weight = out * in_features + in;                 
+                //     value += input[offset_in] * (weight_q[offset_weight]);
+                // }
+                value *= weight_s[out];
+                output[offset_out] = value;
+
+            //                 int32_t ival = 0;
+            // float value = 0.0f;
+            // int qgroups = p->model_dim / GS;
+            // for (int ig = 0; ig < qgroups; ig++) {
+                
+            //     for (int in = 0; in < GS; in++) {
+            //         int offset_in = b * p->model_dim + ig * GS + in;
+            //         int offset_weight = out * p->model_dim + ig * GS + in;
+            //         ival += input->q[offset_in]  * (w->qkv_proj->q + s->qkv_proj_offset_q)[offset_weight];
+            //     }
+            //     value += (float)ival * input->s[b * qgroups + ig];
+            //     ival = 0;
+            // }
+
+            // value *= (w->qkv_proj->s + s->qkv_proj_offset_s)[out];
+
+            }
+        }
+    }
+}
+
 // https://arxiv.org/pdf/1910.07467
 void rmsnorm_forward(float* output, float* input, float *weight, int batch, int seq_len, int dim) {
     // printf("rmsnorm_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, dim);
-    int b = 0;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
+    // int b = 0;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
         for (int l = 0; l < seq_len; l++) {
             
             int offset = b * seq_len * dim + l * dim;
             
             float ss = 0.0f;
+            // int d = 0;
+            // #pragma omp parallel for private(d)
+
             for (int d = 0; d < dim; d++) {
                 ss += input[offset + d] * input[ offset + d];
             }
             ss /= dim;
             ss += 1e-6f;
             ss = 1.0f / sqrtf(ss);
-            
-            for (int d = 0; d < dim; d++) {
+            int d = 0;
+            #pragma omp parallel for private(d)
+            for (d = 0; d < dim; d++) {
                  output[offset + d] = input[offset + d] * ss * weight[d];
             }
         }
@@ -384,10 +505,12 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
     int head_dim = p->head_dim;
     int out_features = (q_heads + k_heads + v_heads) * head_dim;
     // printf("rmsnorm_forward N:%d layer_idx:%d pos:%d\n", batch, layer_idx, pos);
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
-        for(int out = 0; out < out_features; out++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int out;
+        #pragma omp parallel for private(out)
+        for(out = 0; out < out_features; out++) {
             int offset_out = b * out_features + out;
             int offset_q = b * q_heads * head_dim;
             // int offset_k = layer_idx * s->max_seq_len * batch * s->max_kv_heads * head_dim 
@@ -410,22 +533,9 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
             float value = 0.0f;
             for (int in = 0; in < p->model_dim; in++) {
                 int offset_in = b * p->model_dim + in;
-                int offset_weight = out * p->model_dim / 2 + in / 2;
-                uint8_t q = (w->qkv_proj->q + s->qkv_proj_offset_q / 2)[offset_weight];
-                int8_t q_low = (q & 0b1111) - 15;
-                int8_t q_high = ((q >> 4) & 0b1111) - 15;
-                
-                if (in % 2 == 0) {
-                    // printf("%d*%f + ", q_low, (w->qkv_proj->s + s->qkv_proj_offset_s)[out]);
-                    value += input[offset_in] * (float)(q_low) * (w->qkv_proj->s + s->qkv_proj_offset_s)[out];
-                } else {
-                    // printf("%d*%f + ", q_high, (w->qkv_proj->s + s->qkv_proj_offset_s)[out]);
-                    value += input[offset_in] * (float)(q_high) * (w->qkv_proj->s + s->qkv_proj_offset_s)[out];
-                }
+                int offset_weight = out * p->model_dim + in;      
+                value += input[offset_in] * (float)((w->qkv_proj->q + s->qkv_proj_offset_q)[offset_weight]) * (w->qkv_proj->s + s->qkv_proj_offset_s)[out];
             }
-
-            // printf("\n+++++++++++++++++++++++ value: %f\n", value);
-            // exit(1);
 
             if (out < q_heads * head_dim) {
                 s->q[offset_q + out] = value;
@@ -535,9 +645,11 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
     // printf("rope_freq_constant:%f\n", rope_freq_constant);
     // printf("rmsnorm_rope_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, out_features);
     // int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
-        for (int h = 0; h < q_heads; h++) {
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int h;
+        #pragma omp parallel for private(h)
+        for (h = 0; h < q_heads; h++) {
             int offset = b * q_heads * head_dim + h * head_dim;
             float ss = 0.0f;
             for (int hd = 0; hd < head_dim; hd++) {
@@ -594,9 +706,340 @@ void rmsnorm_rope_forward(float* input, RunState *s, OpenELMWeights *w, OpenELMC
     // }
 
     // int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
-        for (int h = 0; h < k_heads; h++) {
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int h;
+        #pragma omp parallel for private(h)
+        for (h = 0; h < k_heads; h++) {
+            int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+                         + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+                         + pos * s->max_kv_heads * head_dim
+                         + h * head_dim;
+            float ss = 0.0f;
+            for (int hd = 0; hd < head_dim; hd++) {
+                ss += s->key_cache[offset + hd] * s->key_cache[ offset + hd];
+            }
+            ss /= head_dim;
+            ss += 1e-6f;
+            ss = 1.0f / sqrtf(ss);
+            // https://arxiv.org/pdf/2104.09864
+
+            for (int hd = 0; hd < head_dim; hd++) {
+                s->key_cache[offset + hd] = s->key_cache[offset + hd] * ss * (w->k_norm  + layer_idx * head_dim)[hd];
+            }
+
+            for (int hd = 0; hd < head_dim / 2; hd++) {
+                float v0 = s->key_cache[offset + hd];
+                float v1 = s->key_cache[offset + hd + head_dim / 2];
+
+                float freq = 1.0f / powf(rope_freq_constant, ((float)(2 * hd) / head_dim));
+                // printf("sl=%d %d=%f ", sl, hd, sl * freq);
+                float cos_val = cosf(pos * freq);
+                float sin_val = sinf(pos * freq);
+                // printf("sl=%d %d=%f ", sl, hd, sin_val);
+                s->key_cache[offset + hd] = v0 * cos_val - v1 * sin_val;
+                s->key_cache[offset + head_dim / 2 + hd] = v1 * cos_val + v0 * sin_val;
+            }
+        }
+    }
+
+    // if (layer_idx == 0) {
+    // for (int b = 0; b < batch; b++) {
+    //     printf("[");
+    //     for (int h = 0; h < k_heads; h++) {
+    //         printf("[");
+    //         printf("[");
+    //         int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + 0 * s->max_kv_heads * head_dim
+    //                      + h * head_dim;
+    //         printf("offset=%d ", offset);
+    //         for (int hd = 0; hd < head_dim; hd++) {
+    //             printf("%f,", s->key_cache[offset + hd]);
+    //         }
+    //         printf("],\n");
+    //         printf("],\n");
+    //     }
+    //     printf("],\n");
+    // }
+    // }
+
+    // // printf key
+    // if (layer_idx == 0 && pos == 0) {
+    // for (int b = 0; b < batch; b++) {
+    //     printf("[");
+    //     for (int h = 0; h < k_heads; h++) {
+    //         printf("[");
+    //         printf("[");
+    //         int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + pos * s->max_kv_heads * head_dim
+    //                      + h * head_dim;
+    //         printf("offset=%d ", offset);
+    //         for (int hd = 0; hd < head_dim; hd++) {
+    //             printf("%f,", s->key_cache[offset + hd]);
+    //         }
+    //         printf("],\n");
+    //         printf("],\n");
+    //     }
+    //     printf("],\n");
+    // }
+    // }
+
+    // if (layer_idx == 0  && pos == 3) {
+    // for (int b = 0; b < batch; b++) {
+    //     printf("[");
+    //     for (int h = 0; h < k_heads; h++) {
+    //         printf("[");
+    //         printf("[");
+    //         int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + 0 * s->max_kv_heads * head_dim
+    //                      + h * head_dim;
+    //         printf("offset=%d ", offset);
+    //         for (int hd = 0; hd < head_dim; hd++) {
+    //             printf("%f,", s->key_cache[offset + hd]);
+    //         }
+    //         printf("],\n");
+    //         printf("],\n");
+    //     }
+    //     printf("],\n");
+    // }
+    // }
+
+}
+
+
+void rmsnorm_rope_forwardv1(QuantizedTensor* input, RunState *s, OpenELMWeights *w, OpenELMConfig *p, int layer_idx, int pos) {
+    int batch = s->batch;
+    int q_heads = p->num_query_heads[layer_idx];
+    int k_heads = p->num_kv_heads[layer_idx];
+    int v_heads = p->num_kv_heads[layer_idx];
+    int head_dim = p->head_dim;
+    int out_features = (q_heads + k_heads + v_heads) * head_dim;
+    // printf("rmsnorm_forward N:%d layer_idx:%d pos:%d\n", batch, layer_idx, pos);
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int out;
+        #pragma omp parallel for private(out)
+        for(out = 0; out < out_features; out++) {
+            int offset_out = b * out_features + out;
+            int offset_q = b * q_heads * head_dim;
+            // int offset_k = layer_idx * s->max_seq_len * batch * s->max_kv_heads * head_dim 
+            //              + pos * batch * s->max_kv_heads * head_dim
+            //              + b * k_heads * head_dim;
+            
+            // int offset_k = b * s->max_seq_len * p->num_transformer_layers * s->max_kv_heads * head_dim 
+            //              + pos * p->num_transformer_layers * s->max_kv_heads * head_dim 
+            //              + layer_idx * s->max_kv_heads * head_dim 
+            //              + k_heads * head_dim;
+
+            // int offset_v = layer_idx * s->max_seq_len * batch * s->max_kv_heads * head_dim 
+            //              + pos * batch * s->max_kv_heads * head_dim
+            //              + b * v_heads * head_dim;
+            int offset_v = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+                         + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+                         + pos * s->max_kv_heads * head_dim;
+            int offset_bias = out;
+
+            int32_t ival = 0;
+            float value = 0.0f;
+            int qgroups = p->model_dim / GS;
+            for (int ig = 0; ig < qgroups; ig++) {
+                
+                for (int in = 0; in < GS; in++) {
+                    int offset_in = b * p->model_dim + ig * GS + in;
+                    int offset_weight = out * p->model_dim + ig * GS + in;
+                    ival += input->q[offset_in]  * (w->qkv_proj->q + s->qkv_proj_offset_q)[offset_weight];
+                }
+                value += (float)ival * input->s[b * qgroups + ig];
+                ival = 0;
+            }
+
+            value *= (w->qkv_proj->s + s->qkv_proj_offset_s)[out];
+            
+            // for (int in = 0; in < p->model_dim; in += GS) {
+            //     int offset_in = b * p->model_dim + in;
+            //     int offset_weight = out * p->model_dim + in;      
+            //     ival += input->q[offset_in]  * (w->qkv_proj->q + s->qkv_proj_offset_q)[offset_weight];
+            //     value += input[offset_in] * (float)((w->qkv_proj->q + s->qkv_proj_offset_q)[offset_weight]) * (w->qkv_proj->s + s->qkv_proj_offset_s)[out];
+            // }
+
+            if (out < q_heads * head_dim) {
+                s->q[offset_q + out] = value;
+            } else if (out < (q_heads + k_heads) * head_dim) {
+                int offset_k = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+                         + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+                         + pos * s->max_kv_heads * head_dim;
+                // if (offset_k + out - q_heads * head_dim == 0) {
+                //     printf("batch:%d, num_transformer_layers:%d, max_seq_len:%d, kv_dim:%d, offset_k:%d pos:%d value=%f\n", batch, p->num_transformer_layers, s->max_seq_len, s->max_kv_heads * head_dim, offset_k, pos, value);
+                // }
+                s->key_cache[offset_k + out - q_heads * head_dim] = value;
+            } else if (out < (q_heads + k_heads + v_heads) * head_dim) {
+                s->value_cache[offset_v + out - (q_heads + k_heads) * head_dim] = value;
+            }
+        }
+    }
+    
+    // // printf qeury
+    // if (layer_idx == 0) {
+    // for (int b = 0; b < batch; b++) {
+    //     printf("[");
+    //     for (int h = 0; h < q_heads; h++) {
+    //         printf("[");
+    //         printf("[");
+                    
+    //         int offset = b * q_heads * head_dim + h * head_dim;
+    //         for (int hd = 0; hd < head_dim; hd++) {     
+    //             printf("%f,", s->q[offset + hd]);
+    //         }
+    //         printf("],\n");
+    //         printf("],\n");
+    //     }
+    //     printf("],\n");
+    // }
+    // }
+
+    // // printf key
+    // if (layer_idx == 0) {
+    // for (int b = 0; b < batch; b++) {
+    //     printf("[");
+    //     for (int h = 0; h < k_heads; h++) {
+    //         printf("[");
+    //         printf("[");
+    //         int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + pos * s->max_kv_heads * head_dim 
+    //                      + h * head_dim;
+    //         printf("offset=%d ", offset);
+    //         for (int hd = 0; hd < head_dim; hd++) {
+    //             printf("%f,", s->key_cache[offset + hd]);
+    //         }
+    //         printf("],\n");
+    //         printf("],\n");
+    //     }
+    //     printf("],\n");
+    // }
+    // }
+
+    // printf key
+    // if (layer_idx == 0 && pos == 0) {
+    // for (int b = 0; b < batch; b++) {
+    //     printf("[");
+    //     for (int h = 0; h < k_heads; h++) {
+    //         printf("[");
+    //         printf("[");
+    //         int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + pos * s->max_kv_heads * head_dim
+    //                      + h * head_dim;
+    //         printf("offset=%d ", offset);
+    //         for (int hd = 0; hd < head_dim; hd++) {
+    //             printf("%f,", s->key_cache[offset + hd]);
+    //         }
+    //         printf("],\n");
+    //         printf("],\n");
+    //     }
+    //     printf("],\n");
+    // }
+    // }
+
+    // // printf value
+    // if (layer_idx == 0) {
+    // for (int b = 0; b < batch; b++) {
+    //     printf("[");
+    //     for (int h = 0; h < v_heads; h++) {
+    //         printf("[");
+    //         printf("[");
+    //         int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
+    //                      + pos * s->max_kv_heads * head_dim
+    //                      + h * head_dim;
+    //         printf("offset=%d ", offset);
+    //         for (int hd = 0; hd < head_dim; hd++) {
+    //             printf("%f,", s->value_cache[offset + hd]);
+    //         }
+    //         printf("],\n");
+    //         printf("],\n");
+    //     }
+    //     printf("],\n");
+    // }
+    // }
+
+    s->qkv_proj_offset_q += out_features * p->model_dim;
+    s->qkv_proj_offset_s += out_features;
+
+    float rope_freq_constant = (float)p->rope_freq_constant;
+    // printf("rope_freq_constant:%f\n", rope_freq_constant);
+    // printf("rmsnorm_rope_forward N:%d seq_len:%d dim:%d\n", batch, seq_len, out_features);
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int h;
+        #pragma omp parallel for private(h)
+        for (h = 0; h < q_heads; h++) {
+            int offset = b * q_heads * head_dim + h * head_dim;
+            float ss = 0.0f;
+            for (int hd = 0; hd < head_dim; hd++) {
+                ss += s->q[offset + hd] * s->q[ offset + hd];
+            }
+            ss /= head_dim;
+            ss += 1e-6f;
+            ss = 1.0f / sqrtf(ss);
+    
+            for (int hd = 0; hd < head_dim; hd++) {
+                s->q[offset + hd] = s->q[offset + hd] * ss * (w->q_norm + layer_idx * head_dim)[hd];
+            }
+
+            // https://arxiv.org/pdf/2104.09864
+
+            for (int hd = 0; hd < head_dim / 2; hd++) {
+                float v0 = s->q[offset + hd];
+                float v1 = s->q[offset + hd + head_dim / 2];
+
+                float freq = 1.0f / powf(rope_freq_constant, ((float)(2 * hd) / head_dim));
+                // printf("sl=%d %d=%f ", sl, hd, sl * freq);
+                float cos_val = cosf(pos * freq);
+                float sin_val = sinf(pos * freq);
+                // printf("sl=%d %d=%f ", sl, hd, sin_val);
+                s->q[offset + hd] = v0 * cos_val - v1 * sin_val;
+                s->q[offset + head_dim / 2 + hd] = v1 * cos_val + v0 * sin_val;
+                // s->x_qkv_proj[offset + hd + head_dim / 2] = v0 * sin_val + v1 * cos_val;
+                // printf("batch=%d seq_len=%d heads=%d %d=%f %f v=%f %f cos_sin=%f %f\n", b, sl, h, hd, s->x_qkv_proj[offset + hd], s->x_qkv_proj[offset + head_dim / 2 + hd], 
+                //        v0, v1, cos_val, sin_val);
+
+                // printf("batch=%d seq_len=%d heads=%d %d=%f %f\n", b, sl, h, hd, s->x_qkv_proj[offset + hd], s->x_qkv_proj[offset + head_dim / 2 + hd]);
+                // printf("batch=%d seq_len=%d heads=%d %d=%f %f v=%f %f cos_sin=%f %f\n", b, sl, h, hd, s->x_qkv_proj[offset + hd], s->x_qkv_proj[offset + head_dim / 2 + hd], v0, v1, cos_val, sin_val);
+            }
+        }
+    }
+
+    // // printf qeury
+    // if (layer_idx == 0) {
+    // for (int b = 0; b < batch; b++) {
+    //     printf("[");
+    //     for (int h = 0; h < q_heads; h++) {
+    //         printf("[");
+    //         printf("[");
+                    
+    //         int offset = b * q_heads * head_dim + h * head_dim;
+    //         for (int hd = 0; hd < head_dim; hd++) {     
+    //             printf("%f,", s->q[offset + hd]);
+    //         }
+    //         printf("],\n");
+    //         printf("],\n");
+    //     }
+    //     printf("],\n");
+    // }
+    // }
+
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int h;
+        #pragma omp parallel for private(h)
+        for (h = 0; h < k_heads; h++) {
             int offset = b * p->num_transformer_layers * s->max_seq_len * s->max_kv_heads * head_dim 
                          + layer_idx * s->max_seq_len * s->max_kv_heads * head_dim 
                          + pos * s->max_kv_heads * head_dim
@@ -709,10 +1152,12 @@ void group_attention_forward(float* output, RunState *s, OpenELMWeights *w, Open
     // printf("group_attention_forward N:%d seq_len:%d head_dim:%d\n", s->batch, seq_len, head_dim);
     float min_dtype = -INFINITY;
 
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
-        for (int h = 0; h < q_heads; h++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
+        int h;
+        #pragma omp parallel for private(h)
+        for (h = 0; h < q_heads; h++) {
             int offset_att = b * s->max_q_heads * s->max_seq_len + h * s->max_seq_len;
             int offset_q = b * q_heads * head_dim + h * head_dim;
 
@@ -828,7 +1273,10 @@ void glu_forward(float* output, float* input, RunState *s, OpenELMWeights *w, Op
     int intermediate_dim = (int)make_divisible(ffn_multiplier * p->model_dim, p->ffn_dim_divisor, -1);
     // printf("glu_forward batch:%d seq_len:%d model_dim:%d intermediate_dim:%d\n", s->batch, seq_len, p->model_dim, intermediate_dim);
 
-    linear_forward(s->ihb, input, w->proj_1->q + s->proj_1_offset_q / 2, w->proj_1->s + s->proj_1_offset_s, batch, seq_len, model_dim, 2 * intermediate_dim);
+    quantize(&s->xq, input, batch, model_dim);
+    linear_forwardv1(s->ihb, &s->xq, w->proj_1->q + s->proj_1_offset_q, w->proj_1->s + s->proj_1_offset_s, batch, seq_len, model_dim, 2 * intermediate_dim);
+
+    // linear_forward(s->ihb, input, w->proj_1->q + s->proj_1_offset_q, w->proj_1->s + s->proj_1_offset_s, batch, seq_len, model_dim, 2 * intermediate_dim);
     s->proj_1_offset_q += 2 * intermediate_dim * model_dim;
     s->proj_1_offset_s += 2 * intermediate_dim;
     // // for (int i = batch * seq_len * model_dim - model_dim; i < batch * seq_len * model_dim; i++) {
@@ -836,14 +1284,16 @@ void glu_forward(float* output, float* input, RunState *s, OpenELMWeights *w, Op
     //     printf("%d=%f ", i, s->hb[i]);
     // }
 
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < s->batch; b++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < s->batch; b++) {
         for (int sl = 0; sl < seq_len; sl++) {
             int offset_y1 = b * seq_len * 2 * intermediate_dim + sl * 2 * intermediate_dim;
             int offset_y2 = b * seq_len * 2 * intermediate_dim + sl * 2 * intermediate_dim + intermediate_dim;
             int offset_h = b * seq_len * intermediate_dim + sl * intermediate_dim;
-            for (int d = 0; d < intermediate_dim; d++) {
+            int d;
+            #pragma omp parallel for private(d)
+            for (d = 0; d < intermediate_dim; d++) {
                 s->ihb[offset_y1 + d] = s->ihb[offset_y1 + d] / (1 + expf(-(s->ihb[offset_y1 + d])));
                 s->ihb2[offset_h+ d] = s->ihb[offset_y1 + d] * s->ihb[offset_y2 + d];
             }
@@ -855,7 +1305,10 @@ void glu_forward(float* output, float* input, RunState *s, OpenELMWeights *w, Op
     //     printf("%d=%f ", i, s->hb2[i]);
     // }
     
-    linear_forward(output, s->ihb2, w->proj_2->q + s->proj_2_offset_q / 2, w->proj_2->s + s->proj_2_offset_s, batch, seq_len, intermediate_dim, model_dim);
+    quantize(&s->ihbq2, s->ihb2, batch, intermediate_dim);
+    linear_forwardv1(output, &s->ihbq2, w->proj_2->q + s->proj_2_offset_q, w->proj_2->s + s->proj_2_offset_s, batch, seq_len, intermediate_dim, model_dim);
+
+    // linear_forward(output, s->ihb2, w->proj_2->q + s->proj_2_offset_q, w->proj_2->s + s->proj_2_offset_s, batch, seq_len, intermediate_dim, model_dim);
     s->proj_2_offset_q += intermediate_dim * model_dim;
     s->proj_2_offset_s += model_dim;
     // for (int i = 0; i < batch * seq_len * model_dim; i++) {
@@ -866,13 +1319,13 @@ void glu_forward(float* output, float* input, RunState *s, OpenELMWeights *w, Op
 
 void logits_forward(float* output, float* input, float *weight, float* bias, int batch, int seq_len, int in_features, int out_features) {
     // printf("logits_forward batch:%d seq_len:%d in_features:%d out_features:%d\n", batch, seq_len, in_features, out_features);
-    int b;
-    #pragma omp parallel for private(b)
-    for (b = 0; b < batch; b++) {
+    // int b;
+    // #pragma omp parallel for private(b)
+    for (int b = 0; b < batch; b++) {
         int l = seq_len - 1;
-        // #pragma omp parallel for private(l)
-        // for (l = 0; l < seq_len; l++) {
-            for(int out = 0; out < out_features; out++) {
+        int out;
+        #pragma omp parallel for private(out)
+            for(out = 0; out < out_features; out++) {
                 int offset_out = b * out_features + out;
                 int offset_bias = out;
                 float value = 0.0f;
@@ -890,7 +1343,6 @@ void logits_forward(float* output, float* input, float *weight, float* bias, int
         // }
     }
 }
-
 
 void argmax_forward(int* output, float* input, int M, int N) {
     // printf("argmax_forward M:%d N:%d\n", M, N);
@@ -953,9 +1405,55 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
         // }
         // }
         
+        quantize(&s->xq, s->xb, batch, model_dim);
 
-        rmsnorm_rope_forward(s->xb, s, w, p, l, pos);
+        // dequantize(&s->xq, s->xb2, batch, model_dim);
 
+        // if (l == 0 && pos == 0) {
+
+        // for (int b = 0; b < batch; b++) {
+        //     printf("[");
+        //     int offset = b * model_dim;
+        //     for (int d = 0; d < model_dim; d++) {
+        //         printf("%d=%f, ", (offset + d) / GS, s->xb[offset + d]);
+        //     }
+        //     printf("],\n");
+        // }
+
+        // for (int b = 0; b < batch; b++) {
+        //     int offset = b * model_dim;
+        //     printf("[");
+        //     for (int d = 0; d < model_dim; d++) {
+        //         printf("%d=%f, ", (offset + d) / GS, s->xb2[offset + d]);
+        //     }
+        //     printf("],\n");
+        // }
+
+        // // exit(1);
+
+        // for (int b = 0; b < batch; b++) {
+        //     printf("[");
+        //     int offset = b * model_dim;
+        //     for (int d = 0; d < model_dim; d++) {
+        //         printf("%d, ", s->xq.q[offset + d]);
+        //     }
+        //     printf("],\n");
+        // }
+
+        // for (int b = 0; b < batch; b++) {
+        //     printf("[");
+        //     for (int g = 0; g < model_dim / GS; g++) {
+        //         printf("%f, ", s->xq.s[b * model_dim / GS + g]);
+        //     }
+        //     printf("],\n");
+        // }
+        // }
+        rmsnorm_rope_forwardv1(&s->xq, s, w, p, l, pos);
+        // rmsnorm_rope_forward(s->xb, s, w, p, l, pos);
+        // for (int i = batch * seq_len * out_features - out_features; i < batch * seq_len * out_features; i++) {
+        // // for (int i = 0; i < out_features; i++) {
+        //     printf("%d=%f ", i, s->x_qkv_proj[i]);
+        // }
         int q_heads = p->num_query_heads[l];
         int k_heads = p->num_kv_heads[l];
         int v_heads = p->num_kv_heads[l];
@@ -999,9 +1497,13 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
         //     printf("%d=%f ", i, s->xb[i]);
         // }
 
-        linear_forward(s->xb2, s->xb, w->out_proj->q + s->out_proj_offset_q / 2, w->out_proj->s + s->out_proj_offset_s, batch, 1, q_heads * head_dim, model_dim);
+        quantize(&s->xq, s->xb, batch, q_heads * head_dim);
+        linear_forwardv1(s->xb2, &s->xq, w->out_proj->q + s->out_proj_offset_q, w->out_proj->s + s->out_proj_offset_s, batch, 1, q_heads * head_dim, model_dim);
+        // linear_forward(s->xb2, s->xb, w->out_proj->q + s->out_proj_offset_q, w->out_proj->s + s->out_proj_offset_s, batch, 1, q_heads * head_dim, model_dim);
+
         s->out_proj_offset_q += q_heads * head_dim * model_dim;
         s->out_proj_offset_s += model_dim;
+
         // if (l == 0) {
         // for (int b = 0; b < batch; b++) {
         //     printf("[");
@@ -1016,6 +1518,7 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
         for (int i = 0; i < batch * model_dim; i++) {
             s->x[i] += s->xb2[i];
         }
+
         // if (l == 0) {
         // for (int b = 0; b < batch; b++) {
         //     printf("[");
@@ -1044,6 +1547,7 @@ float* openelm_forward(Context *ctx, OpenELM* openelm, int *token, int batch, in
         for (int i = 0; i < batch * model_dim; i++) {
             s->x[i] += s->hb[i];
         }
+        
         // if (l == 5) {
         // for (int b = 0; b < batch; b++) {
         //     printf("[");
@@ -1107,13 +1611,12 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
 
     long start = time_in_ms();
     while (pos < steps) {
-    // while (pos < steps) {
         float *logits = openelm_forward(ctx, openelm, s->token, prompt->batch, pos);
 
         argmax_forward(s->next, s->logits, s->batch, openelm->config.vocab_size);
 
         for (int i = 0; i < s->batch; i++) {
-            printf("%d=%d ", i, s->next[i]);
+            printf("pos:%d %d=%d ", pos, i, s->next[i]);
         }
         // if (pos < num_prompt_tokens - 1) {
         //     for (int i = 0; i < prompt->batch; i++) {
@@ -1138,9 +1641,9 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
             s->token[i] = s->next[i];
         }
 
-        if (pos == prompt->length) {
-            break;
-        }
+        // if (pos == prompt->length) {
+        //     break;
+        // }
         
 
         // for (int i = 0; i < prompt->batch; i++) {
@@ -1149,7 +1652,7 @@ void generate(Context *ctx, OpenELM *openelm, Prompt *prompt, int steps) {
         // if (start == 0) { start = time_in_ms(); }
     }
     long end = time_in_ms();
-    fprintf(stderr, "achieved tok/s: %f\n", (pos-1) / (double)(end-start)*1000);
+    fprintf(stderr, "seconds:%fs tokens:%d achieved tok/s: %f\n", (double)(end-start) / 1000, pos, (pos) / (double)(end-start)*1000);
 
 }
 
@@ -1175,7 +1678,7 @@ OpenELM *c_get_model() {
 void c_init(int batch, int max_seq_len) {
     OpenELM *model = c_get_model();
 
-    openelm_build_from_checkpoint(model, "openelm_270M_q40.bin");
+    openelm_build_from_checkpoint(model, "openelm_270M_q80.bin");
     model->state.batch = batch;
     model->state.max_seq_len = max_seq_len;
     malloc_run_state(&model->state, &model->config);
@@ -1223,6 +1726,7 @@ void c_chat () {
 int start() {
     Prompt prompt;
     read_prompt(&prompt, "openelm_prompt.bin");
+    prompt.batch = 2;
 
     OpenELM *model = (OpenELM*)malloc(sizeof(OpenELM));
     OpenELMWeights *weights = (OpenELMWeights*)malloc(sizeof(OpenELMWeights));
@@ -1237,7 +1741,7 @@ int start() {
     model->weights->proj_2 = &proj_2;
     OpenELMConfig config;
 
-    openelm_build_from_checkpoint(model, "openelm_270M_q40.bin");
+    openelm_build_from_checkpoint(model, "openelm_270M_q80.bin");
 
     model->state.batch = prompt.batch;
     model->state.max_seq_len = 256;
