@@ -25,7 +25,7 @@ total time is:12.02s, tokens:256, achieved 21.30 tokens/s
 
 gcc --shared -fPIC -o openelm_kv.so -g -Ofast openelm_kv_v1.c -lm -fopenmp
 OMP_NUM_THREADS=8 python run_kv.py
-total time is:7.55s, tokens:256, achieved 33.89 tokens/s
+total time is:7.06s, tokens:256, achieved 36.24 tokens/s
 
 ++++++++++++++++++++++++++++ openelm_kv_v2.c ++++++++++++++++++++++++++++
 gcc --shared -fPIC -o openelm_kv.so openelm_kv_v2.c -lm -fopenmp -mavx -mavx2
@@ -38,7 +38,7 @@ total time is:8.77s, tokens:256, achieved 29.18 tokens/s
 
 gcc --shared -fPIC -o openelm_kv.so -Ofast openelm_kv_v2.c -lm -fopenmp -mavx -mavx2
 OMP_NUM_THREADS=8 python run_kv.py
-total time is:7.65s, tokens:256, achieved 33.46 tokens/s
+total time is:7.36s, tokens:256, achieved 34.76 tokens/s
 
 ++++++++++++++++++++++++++++ openelm_kv_avx512.c ++++++++++++++++++++++++++++
 gcc --shared -fPIC -o openelm_kv.so openelm_kv_avx512.c -lm -fopenmp -mavx -mavx2 -mavx512f
@@ -51,7 +51,7 @@ total time is:7.88s, tokens:256, achieved 32.49 tokens/s
 
 gcc --shared -fPIC -o openelm_kv.so -Ofast openelm_kv_avx512.c -lm -fopenmp -mavx -mavx2 -mavx512f
 OMP_NUM_THREADS=8 python run_kv.py
-total time is:7.42s, tokens:256, achieved 34.48 tokens/s
+total time is:7.34s, tokens:256, achieved 34.88 tokens/s
 
 ++++++++++++++++++++++++++++ openelm_kv_q80_v1.c ++++++++++++++++++++++++++++
 gcc --shared -fPIC -o openelm_kv.so openelm_kv_q80_v1.c -lm -fopenmp
@@ -70,7 +70,34 @@ gcc --shared -fPIC -o openelm_kv.so -g -O3 openelm_kv_q80_v1.c -lm -fopenmp
 OMP_NUM_THREADS=8 python run_kv.py
 total time is:12.01s, tokens:256, achieved 21.32 tokens/s
 
+gcc --shared -fPIC -o openelm_kv.so -g -Ofast openelm_kv_q80_v1.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:4.11s, tokens:256, achieved 62.33 tokens/s
 
+++++++++++++++++++++++++++++ openelm_kv_q80_v2.c ++++++++++++++++++++++++++++
+gcc --shared -fPIC -o openelm_kv.so openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:71.63s, tokens:256, achieved 3.57 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -O1 openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:9.46s, tokens:256, achieved 27.06 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -O2 openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:10.49s, tokens:256, achieved 24.40 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -O3 openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:4.48s, tokens:256, achieved 57.20 tokens/s
+
+gcc --shared -fPIC -o openelm_kv.so -Ofast openelm_kv_q80_v2.c -lm -fopenmp
+OMP_NUM_THREADS=8 python run_kv.py
+total time is:3.90s, tokens:256, achieved 65.60 tokens/s
+
+++++++++++++++++++++++++++++ openelm.cu ++++++++++++++++++++++++++++
+nvcc --shared -Xcompiler "-fPIC" -o openelm_kv.so openelm.cu -lm
+python run_kv.py
 
 '''
 import time
