@@ -105,6 +105,9 @@ nvcc --shared -Xcompiler "-fPIC" -o openelm_kv.so openelm_v1.cu -lm
 python run_kv.py
 total time is:3.73s, tokens:256, achieved 68.72 tokens/s
 
+++++++++++++++++++++++++++++ openelm_v2.cu ++++++++++++++++++++++++++++
+nvcc --shared -Xcompiler "-fPIC" -o openelm_kv.so openelm_v2.cu -lm
+total time is:4.13s, tokens:256, achieved 61.94 tokens/s
 
 '''
 import time
